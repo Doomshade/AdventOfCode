@@ -3,7 +3,11 @@ package git.doomshade.aoc._151;
 import git.doomshade.aoc.shared.Util;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.ToIntFunction;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * <h2>--- Day 15: Beacon Exclusion Zone ---</h2><p>You feel the ground rumble again as the distress signal leads you to a large network of subterranean tunnels. You don't
@@ -64,8 +68,8 @@ import java.util.List;
  * 22 .......................B....
  * </code></pre>
  * <p>This isn't necessarily a comprehensive map of all beacons in the area, though. Because each sensor only identifies its closest beacon, if a sensor detects a beacon,
- * you know there are no other beacons that close or closer to that sensor. There could still be beacons that just happen to not be the closest beacon to any sensor.
- * Consider the sensor at <code>8,7</code>:</p>
+ * you know there are no other beacons that close or closer to that sensor. There could still be beacons that just happen to not be the closest beacon to any sensor. Consider
+ * the sensor at <code>8,7</code>:</p>
  * <pre><code>
  *                1    1    2    2
  *      0    5    0    5    0    5
@@ -112,13 +116,136 @@ import java.util.List;
  * <p>Consult the report from the sensors you just deployed. <em>In the row where <code>y=2000000</code>, how many positions cannot contain a beacon?</em></p>
  */
 public class Main implements Runnable {
+    // Sensor at x=2, y=18: closest beacon is at x=-2, y=15
+    private static final Pattern SENSOR_PATTERN = Pattern.compile(".+x=(?<sensorX>-?\\d+), y=(?<sensorY>-?\\d+).+x=(?<beaconX>-?\\d+), y=(?<beaconY>-?\\d+)");
+    private static final byte COULD_BE_BEACON = 0;
+    private static final byte COULD_NOT_BE_BEACON = 1;
+    private static final byte SENSOR = 2;
+    private static final byte BEACON = 3;
+
+    private int val(int curr, int min) {
+        return curr - min;
+    }
+
+    private static class Point {
+        final int x, y;
+
+        private Point(final int x, final int y) {
+            this.x = x;
+            this.y = y;
+        }
+    }
+
     @Override
     public void run() {
         try {
             final List<String> input = Util.readStringInput(getClass(), "input2.txt");
+            final List<Point> sensors = new ArrayList<>();
+            final List<Point> beacons = new ArrayList<>();
+
+            for (String s : input) {
+                final Matcher matcher = SENSOR_PATTERN.matcher(s);
+                if (!matcher.find()) {
+                    throw new IllegalStateException();
+                }
+                final int sensorX = Integer.parseInt(matcher.group("sensorX"));
+                final int sensorY = Integer.parseInt(matcher.group("sensorY"));
+                final int beaconX = Integer.parseInt(matcher.group("beaconX"));
+                final int beaconY = Integer.parseInt(matcher.group("beaconY"));
+
+                final Point sensor = new Point(sensorX, sensorY);
+                final Point beacon = new Point(beaconX, beaconY);
+
+                sensors.add(sensor);
+                beacons.add(beacon);
+            }
+            final int minSensorX = getMinValue(sensors, pt -> pt.x);
+            final int minSensorY = getMinValue(sensors, pt -> pt.y);
+            final int minBeaconX = getMinValue(beacons, pt -> pt.x);
+            final int minBeaconY = getMinValue(beacons, pt -> pt.y);
+
+            final int maxSensorX = getMaxValue(sensors, pt -> pt.x);
+            final int maxSensorY = getMaxValue(sensors, pt -> pt.y);
+            final int maxBeaconX = getMaxValue(beacons, pt -> pt.x);
+            final int maxBeaconY = getMaxValue(beacons, pt -> pt.y);
+
+            final int minX = Math.min(minSensorX, minBeaconX);
+            final int minY = Math.min(minSensorY, minBeaconY);
+            final int maxX = Math.max(maxSensorX, maxBeaconX);
+            final int maxY = Math.max(maxSensorY, maxBeaconY);
+
+
+            final byte[][] tiles = new byte[val(maxY, minY) + 1][val(maxX, minX) + 1];
+
+            for (final Point p : beacons) {
+                tiles[val(p.y, minY)][val(p.x, minX)] = BEACON;
+            }
+            for (final Point p : sensors) {
+                tiles[val(p.y, minY)][val(p.x, minX)] = SENSOR;
+            }
+
+            for (int i = 0; i < sensors.size(); i++) {
+                final Point sensor = sensors.get(i);
+                final int actualSensorX = val(sensor.x, minX);
+                final int actualSensorY = val(sensor.y, minY);
+
+                final Point closestBeacon = beacons.get(i);
+                final int actualBeaconX = val(closestBeacon.x, minX);
+                final int actualBeaconY = val(closestBeacon.y, minY);
+
+                continueExpanding = true;
+                expand(tiles, actualSensorX, actualSensorY, actualBeaconX, actualBeaconY);
+
+            }
             // TODO: markujeme, jake pozice jsme prohledali v matici. pote spocteme vsechny marknute pozice v radku 2000000
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private boolean continueExpanding = true;
+
+    private void expand(final byte[][] tiles, final int signalX, final int signalY, final int beaconX, final int beaconY) {
+        if (!continueExpanding) {
+            return;
+        }
+        if (signalX == beaconX && signalY == beaconY) {
+            continueExpanding = false;
+            return;
+        }
+
+        if (signalX > 0 && tiles[signalY][signalX - 1] == COULD_BE_BEACON) {
+            tiles[signalY][signalX - 1] = COULD_NOT_BE_BEACON;
+            expand(tiles, signalX - 1, signalY, beaconX, beaconY);
+        }
+        
+        if (signalX < tiles[0].length - 1 && tiles[signalY][signalX + 1] == COULD_BE_BEACON) {
+            tiles[signalY][signalX + 1] = COULD_NOT_BE_BEACON;
+            expand(tiles, signalX + 1, signalY, beaconX, beaconY);
+        }
+
+        if (signalY > 0 && tiles[signalY - 1][signalX] == COULD_BE_BEACON) {
+            tiles[signalY - 1][signalX] = COULD_NOT_BE_BEACON;
+            expand(tiles, signalX, signalY - 1, beaconX, beaconY);
+        }
+
+        if (signalY < tiles[0].length - 1 && tiles[signalY + 1][signalX] == COULD_BE_BEACON) {
+            tiles[signalY + 1][signalX] = COULD_NOT_BE_BEACON;
+            expand(tiles, signalX, signalY + 1, beaconX, beaconY);
+        }
+    }
+
+    private static int getMaxValue(final List<Point> sensors, final ToIntFunction<Point> mapToInt) {
+        return sensors.stream()
+                      .mapToInt(mapToInt)
+                      .max()
+                      .orElseThrow();
+    }
+
+    private static int getMinValue(final List<Point> sensors, final ToIntFunction<Point> mapToInt) {
+        return sensors.stream()
+                      .mapToInt(mapToInt)
+                      .min()
+                      .orElseThrow();
     }
 }
