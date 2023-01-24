@@ -4,10 +4,9 @@ import git.doomshade.aoc.shared.Util;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Queue;
-import java.util.function.ToIntFunction;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -72,8 +71,8 @@ import java.util.regex.Pattern;
  * 22 .......................B....
  * </code></pre>
  * <p>This isn't necessarily a comprehensive map of all beacons in the area, though. Because each sensor only identifies its closest
- * beacon, if a sensor detects a beacon, you know there are no other beacons that close or closer to that sensor. There could still be beacons that just happen to not be the closest beacon to any
- * sensor. Consider the sensor at <code>8,7</code>:</p>
+ * beacon, if a sensor detects a beacon, you know there are no other beacons that close or closer to that sensor. There could still be beacons that just happen to not be the
+ * closest beacon to any sensor. Consider the sensor at <code>8,7</code>:</p>
  * <pre><code>
  *                1    1    2    2
  *      0    5    0    5    0    5
@@ -106,8 +105,8 @@ import java.util.regex.Pattern;
  * <p>This sensor's closest beacon is at <code>2,10</code>, and so you know there are no beacons that close or closer (in any positions
  * marked <code>#</code>).</p>
  * <p>None of the detected beacons seem to be producing the distress signal, so you'll need to <span title="&quot;When you have eliminated
- * all which is impossible, then whatever remains, however improbable, must be where the missing beacon is.&quot; - Sherlock Holmes">work out</span> where the distress beacon is by working out where
- * it
+ * all which is impossible, then whatever remains, however improbable, must be where the missing beacon is.&quot; - Sherlock Holmes">work out</span> where the distress beacon
+ * is by working out where it
  * <em>isn't</em>. For now, keep things simple by counting the positions where a beacon cannot possibly be along just a single row.</p>
  * <p>So, suppose you have an arrangement of beacons and sensors like in the example above and, just in the row where <code>y=10</code>,
  * you'd like to count the number of positions a beacon cannot possibly exist. The coverage from all sensors near that row looks like this:</p>
@@ -126,16 +125,7 @@ import java.util.regex.Pattern;
 public class Main implements Runnable {
     // Sensor at x=2, y=18: closest beacon is at x=-2, y=15
     private static final Pattern SENSOR_PATTERN = Pattern.compile(".+x=(?<sensorX>-?\\d+), y=(?<sensorY>-?\\d+).+x=(?<beaconX>-?\\d+), y=(?<beaconY>-?\\d+)");
-    private static final byte COULD_BE_BEACON = 0;
-    private static final byte COULD_NOT_BE_BEACON = 1;
-    private static final byte SENSOR = 2;
-    private static final byte BEACON = 3;
-    public static final int EXTRA_SPACE = 10;
-    private boolean continueExpanding = true;
-
-    private int val(int curr) {
-        return curr + EXTRA_SPACE;
-    }
+    private static final int TARGET_ROW = 2000000;
 
     private static class Point {
         final int x, y;
@@ -144,14 +134,19 @@ public class Main implements Runnable {
             this.x = x;
             this.y = y;
         }
+
+        public int manhattanDistance(final Point other) {
+            return Math.abs(x - other.x) + Math.abs(y - other.y);
+        }
     }
 
     @Override
     public void run() {
         try {
             final List<String> input = Util.readStringInput(getClass(), "input.txt");
-            final List<Point> sensors = new ArrayList<>();
+            final Set<Integer> visitedPositions = new HashSet<>();
             final List<Point> beacons = new ArrayList<>();
+            int res = 0;
 
             for (String s : input) {
                 final Matcher matcher = SENSOR_PATTERN.matcher(s);
@@ -165,145 +160,24 @@ public class Main implements Runnable {
 
                 final Point sensor = new Point(sensorX, sensorY);
                 final Point beacon = new Point(beaconX, beaconY);
-
-                sensors.add(sensor);
                 beacons.add(beacon);
-            }
-            final int minSensorX = getMinValue(sensors, pt -> pt.x);
-            final int minSensorY = getMinValue(sensors, pt -> pt.y);
-            final int minBeaconX = getMinValue(beacons, pt -> pt.x);
-            final int minBeaconY = getMinValue(beacons, pt -> pt.y);
 
-            final int maxSensorX = getMaxValue(sensors, pt -> pt.x);
-            final int maxSensorY = getMaxValue(sensors, pt -> pt.y);
-            final int maxBeaconX = getMaxValue(beacons, pt -> pt.x);
-            final int maxBeaconY = getMaxValue(beacons, pt -> pt.y);
+                final int initialPositions = sensor.manhattanDistance(beacon) * 2 + 1;
+                final int yDistanceFromTargetRow = Math.abs(sensor.y - TARGET_ROW);
+                final int resultPositions = Math.max(0, initialPositions - 2 * yDistanceFromTargetRow);
 
-            final int minX = Math.min(minSensorX, minBeaconX);
-            final int minY = Math.min(minSensorY, minBeaconY);
-            final int maxX = Math.max(maxSensorX, maxBeaconX);
-            final int maxY = Math.max(maxSensorY, maxBeaconY);
-
-            System.out.printf("min: %d, %d; max: %d, %d%n", minX, minY, maxX, maxY);
-            final long yy = val(maxY) + Math.abs(minY) + EXTRA_SPACE;
-            final long xx = val(maxX) + Math.abs(minX) + EXTRA_SPACE;
-
-            System.out.printf("ROWS: %d, COLS: %d, BYTES: %d%n", yy, xx, yy * xx);
-            final byte[][] tiles = new byte[(int) yy][(int) xx];
-
-            for (final Point p : beacons) {
-                tiles[val(p.y)][val(p.x)] = BEACON;
-            }
-            for (final Point p : sensors) {
-                tiles[val(p.y)][val(p.x)] = SENSOR;
-            }
-
-            for (int i = 0; i < sensors.size(); i++) {
-                final Point sensor = sensors.get(i);
-                final int actualSensorX = val(sensor.x);
-                final int actualSensorY = val(sensor.y);
-
-                final Point closestBeacon = beacons.get(i);
-                final int actualBeaconX = val(closestBeacon.x);
-                final int actualBeaconY = val(closestBeacon.y);
-
-                continueExpanding = true;
-                expand(tiles, new Point(actualSensorX, actualSensorY), new Point(actualBeaconX, actualBeaconY));
-
-            }
-            printTiles(tiles);
-            final byte[] targetRow = tiles[val(9)];
-            int res = 0;
-            for (byte b : targetRow) {
-                if (b == COULD_NOT_BE_BEACON) {
-                    res++;
+                for (int i = 0; i < resultPositions; i++) {
+                    final int posX = sensor.x + i - resultPositions / 2;
+                    if (visitedPositions.add(posX)) {
+                        if (beacon.x != posX || beacon.y != TARGET_ROW) {
+                            res++;
+                        }
+                    }
                 }
             }
             System.out.println("RESULT: " + res);
-            // TODO: markujeme, jake pozice jsme prohledali v matici. pote spocteme vsechny marknute pozice v radku 2000000
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private void printTiles(final byte[][] tiles) {
-        for (int i = 0; i < tiles.length; i++) {
-            final byte[] row = tiles[i];
-            System.out.println(String.join("", mapToStr(row)));
-        }
-        System.out.println("-----------------------------");
-    }
-
-    private static String[] mapToStr(byte[] bytes) {
-        final String[] arr = new String[bytes.length];
-        for (int i = 0; i < bytes.length; i++) {
-            final byte b = bytes[i];
-            switch (b) {
-                case COULD_BE_BEACON -> arr[i] = ".";
-                case COULD_NOT_BE_BEACON -> arr[i] = "#";
-                case SENSOR -> arr[i] = "S";
-                case BEACON -> arr[i] = "B";
-                default -> throw new IllegalArgumentException("Invalid byte: " + b);
-            }
-        }
-        return arr;
-    }
-
-
-    private void expand(final byte[][] tiles, final Point signal, final Point beacon) {
-        final int signalXMaxBounds = tiles[0].length;
-        final int signalYMaxBounds = tiles.length;
-
-        final Queue<Point> searchQueue = new LinkedList<>();
-        searchQueue.add(signal);
-
-        while (!searchQueue.isEmpty()) {
-            final Point tile = searchQueue.poll();
-            if (tile.x == beacon.x && tile.y == beacon.y) {
-                return;
-            }
-
-            // left
-            if (isInBounds(tile.y, 0) && isInBounds(tile.x, -1) && tiles[tile.y][tile.x - 1] == COULD_BE_BEACON) {
-                tiles[tile.y][tile.x - 1] = COULD_NOT_BE_BEACON;
-            }
-            searchQueue.add(new Point(tile.x - 1, tile.y));
-
-            // up
-            if (isInBounds(tile.y, -1) && isInBounds(tile.x, 0) && tiles[tile.y - 1][tile.x] == COULD_BE_BEACON) {
-                tiles[tile.y - 1][tile.x] = COULD_NOT_BE_BEACON;
-            }
-            searchQueue.add(new Point(tile.x, tile.y - 1));
-
-            // right
-            if (isInBounds(tile.y, 0) && isInBounds(tile.x, +1) && tiles[tile.y][tile.x + 1] == COULD_BE_BEACON) {
-                tiles[tile.y][tile.x + 1] = COULD_NOT_BE_BEACON;
-            }
-            searchQueue.add(new Point(tile.x + 1, tile.y));
-
-            // down
-            if (isInBounds(tile.y, +1) && isInBounds(tile.x, 0) && tiles[tile.y + 1][tile.x] == COULD_BE_BEACON) {
-                tiles[tile.y + 1][tile.x] = COULD_NOT_BE_BEACON;
-            }
-            searchQueue.add(new Point(tile.x, tile.y + 1));
-        }
-    }
-
-    private static boolean isInBounds(int signal, int signalDelta) {
-        return (signal + signalDelta) >= 0;
-    }
-
-    private static int getMaxValue(final List<Point> sensors, final ToIntFunction<Point> mapToInt) {
-        return sensors.stream()
-                      .mapToInt(mapToInt)
-                      .max()
-                      .orElseThrow();
-    }
-
-    private static int getMinValue(final List<Point> sensors, final ToIntFunction<Point> mapToInt) {
-        return sensors.stream()
-                      .mapToInt(mapToInt)
-                      .min()
-                      .orElseThrow();
     }
 }
